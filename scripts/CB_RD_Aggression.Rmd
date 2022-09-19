@@ -31,7 +31,7 @@ library(glmmTMB)
 library(emmeans)
 library(DHARMa)
 library(car)
-#library(lme4) # for bootmer
+library(lme4) # for bootmer
 ```
 
 
@@ -258,8 +258,9 @@ AIC(mod1_tmb)             #3111
 parametric bootstrap. This can take a long time. Test first with a small nsim.
 
 Currently it is set up just for the genetic correlation.
+Currently will not evaluate when knitting (too slow).
 
-```{r}
+```{r, eval = FALSE}
 cov2cor(summary(mod1_tmb)$varcor$cond$DGRP[1:2, 1:2])[1,2] # genetic correlation
 
 b1 <- bootMer(mod1_tmb, 
@@ -562,7 +563,7 @@ $ZI \Gamma$. Essentially a Gamma Hurdle approach.
 
 I actually don't advocate this approach for this as it interprets zeroes as all structural 0s. One interpretation for this approach is potentially because experiments were only recorded in 10 minute units. This might imply that if we observed the experiments longer we would have many fewer zeroes. I asked RD about this. According to RD, there are just many individuals who don't show aggression, and it is unlikely to be a function of the length of trials, but biology. So, this is more representative of a check for some systematic issues with using a Tweedie as above, but the Tweedie probably makes more sense. Anyways, left in for completeness.
 
-```{r}
+```{r, eval = FALSE}
 mod1_tmb_ziGamma <- glmmTMB(duration ~ 1 + category + (0 + category|DGRP) 
                             + (1|day) + (1|Observer) + (0 + category | Obs_code), 
                     ziformula = ~ 1 + category,
