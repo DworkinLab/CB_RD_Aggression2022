@@ -1,0 +1,616 @@
+---
+title: "CB_RD_aggression"
+author: "Ian Dworkin"
+date: "`r format(Sys.time(),'%d %b %Y')`"
+output: 
+  html_document: 
+    toc: yes
+    number_sections: yes
+    keep_md: yes
+editor_options: 
+  chunk_output_type: console
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+
+options(digits = 4, show.signif.stars = FALSE, show.coef.Pvalues = TRUE)
+```
+
+
+## Load libraries
+
+```{r}
+library(tidyverse)
+library(ggbeeswarm)
+library(ggdist)
+library(broom)
+library(distributional)
+library(forcats)
+library(glmmTMB)
+library(emmeans)
+library(DHARMa)
+library(car)
+#library(lme4) # for bootmer
+```
+
+
+## Data input and checks
+
+First the data for the "male only" experiment
+
+```{r}
+aggression_male_only <- read.csv("../data/CB_RD_M.csv", 
+                                 stringsAsFactors = F)
+
+str(aggression_male_only)
+```
+
+
+### Data munging
+
+create day variable (day experiment run), factors.
+```{r}
+aggression_male_only$day <- str_split(aggression_male_only$ObsID , "-", simplify = T)[,1]
+
+str(aggression_male_only)
+
+aggression_male_only[,c(1:4, 14)] <- lapply(aggression_male_only[,c(1:4, 14)], FUN = as.factor)
+```
+
+
+rename some variables to make model clearer to read.
+
+```{r}
+names(aggression_male_only)
+
+names(aggression_male_only)[12:13] <- c("threat", "contact")
+```
+
+
+```{r}
+aggression_male_only <- select(aggression_male_only, ObsID, Observer, Obs_code, 
+                               day, DGRP, threat, contact)
+
+aggression_male_only <- gather(aggression_male_only, category, duration, threat:contact, 
+                               factor_key = TRUE)
+
+str(aggression_male_only)
+```
+
+
+### raw data plots - male only
+
+```{r}
+ggplot(aggression_male_only, aes(duration, fill = category)) +
+  geom_histogram(alpha = 0.5, binwidth = 4)
+
+ggplot(aggression_male_only, aes(y = duration, x = category, col = day)) + 
+  geom_quasirandom(alpha = 0.25)
+
+ggplot(aggression_male_only, aes(y = duration, x = day)) + 
+  geom_quasirandom(alpha = 0.25) + 
+  facet_wrap(vars(category, Observer))
+
+ggplot(aggression_male_only, aes(y = duration, x = DGRP)) + 
+  geom_quasirandom(alpha = 0.25) + 
+  facet_wrap(vars(category))
+
+length(aggression_male_only$duration[aggression_male_only$duration == 0])
+
+length(aggression_male_only$duration[aggression_male_only$duration == 0])/length(aggression_male_only$duration) # about 7% of trials with no aggression
+```
+
+
+### Full model - male only
+
+If you are only interested in the estimates for the fixed effects, set `REML = F`.
+
+Fixed effects presented in the paper are from ML, but all estimates related to variance components are REML. Since the main focus is on those, default to `REML = T`.
+
+*note for myself:* BB and I had an interesting conversation on whether REML actually improves the estimates of variance components for generalized linear models. We did find a few papers (mostly for logistic mixed models and poisson and nb) suggesting it does.
+
+*Another note for myself:* As we would want, for a Tweedie distribution, glmmTMB constrains the power parameter to be $1<x<2$ so it is continuous and "Gamma like" but allowing some zeroes. However, currently glmmTMB does not have an easy way to extract the estimated power parameter (since it is fairly unique to the Tweedie).
+
+
+
+```{r}
+mod1_tmb <- glmmTMB(duration ~ 1 + category + (0 + category|DGRP) + (1|day) + (1|Observer) + (0 + category | Obs_code), 
+                    data = aggression_male_only,
+                    REML = T,
+                    family = tweedie(link = "log"))
+
+
+#should I do this instead for glmmTMB?
+# Discussed with Ben Bolker. He also thought my original (above) model specification made the most sense.
+# mod1_tmb_alt <- glmmTMB(duration ~ 1 + category + (0 + category|DGRP) + (1|day) + (1|Observer), 
+#                     dispformula = ~ 0 + category,    
+#                     data = aggression_male_only,
+#                     REML = T,
+#                     family = tweedie(link = "log"))
+summary(mod1_tmb)
+
+# Q for BB, how to extract power used for tweedie dist?
+# answer from BB... not currently available in a sensible way.
+
+plot(simulateResiduals(mod1_tmb))
+plotQQunif(simulateResiduals(mod1_tmb))
+testZeroInflation(simulateResiduals(mod1_tmb))
+
+confint(mod1_tmb) # also check profile in addition to wald approx
+  # 95% CIs for rG from 0.25 to 0.88, with the point estimate at 0.74
+
+mod1_fixef <-  summary(emmeans(mod1_tmb, ~ category), 
+                       type = "response")
+
+mod1_fixef_link <- summary(emmeans(mod1_tmb, ~ category), 
+                            type = "link")
+
+pairs(emmeans(mod1_tmb, ~ category), type = "response")
+pairs(emmeans(mod1_tmb, ~ category))
+
+# checking consistency in CIs via profiling
+# not working, submit issue to glmmTMB github for Ben Bolker. It works for standard examples, so maybe associated with tweedie distribution
+# Error in dimnames(x) <- dn : 
+#  length of 'dimnames' [1] not equal to array extent
+# prof_CI_mod1 <- profile(mod1_tmb, 
+#                         parallel = "multicore",
+#                         ncpus = 4)
+# confint(prof_CI_mod1)
+```
+
+### fixed effect plots
+
+I think Reuven did not use these for the paper, but here is the code anyways.
+
+```{r}
+plot(emmeans(mod1_tmb, ~ category), type = "response") +
+  ylab("Aggressive category") +
+  xlab("duration (s/m)")
+
+plot(pairs(emmeans(mod1_tmb, ~ category))) + 
+  ylab("Aggression, male only") + 
+  xlab("Estimated difference, log")
+
+plot(pairs(emmeans(mod1_tmb, ~ category), type = "response")) +
+  ylab("Aggression, male only") + 
+  xlab("ratio (T/C)")
+
+
+tidy_mod1_emm <- tidy(emmeans(mod1_tmb, ~ category, 
+                              type = "response"), 
+                      conf.int = TRUE, conf.level = 0.95)
+
+
+ggplot(tidy_mod1_emm, aes(y = category)) +
+  stat_halfeye(
+    aes(xdist = dist_student_t(df = df, 
+                               mu = response, 
+                               sigma = std.error))) +
+  ylab("aggression category") + xlab("duration (s/m)")
+
+mod1_contastRatio <- tidy(pairs(emmeans(mod1_tmb, ~ category),
+                                type = "response",
+                                conf.int = TRUE, 
+                                conf.level = 0.95))
+
+
+ggplot(mod1_contastRatio, aes(y = contrast)) +
+  stat_halfeye(
+    aes(xdist = dist_student_t(df = df, 
+                               mu = ratio, 
+                               sigma = std.error))) +
+   xlab("ratio (threat/physical)") +
+  geom_vline(xintercept = 1, color = "red", 
+             alpha = 0.35, linetype = 2)
+```
+
+### model fit comparisons
+
+First, compare fit to a constrained model where we fixed the genetic covariance between threat and contact aggression to zero ($r_G = 0$).
+
+```{r}
+mod1_tmb_restricted <- glmmTMB(duration ~ 1 + category + diag(0 + category|DGRP) + (1|day) + (1|Observer) + (0 + category | Obs_code), 
+                    data = aggression_male_only, 
+                    REML = T,
+                    family = tweedie(link = "log"))
+
+summary(mod1_tmb_restricted) 
+summary(mod1_tmb)            
+
+
+# Genetic  variances and correlation far enough away from boundary so that this should be fine. Also it gets more conservative near the boundary anyways..
+
+LL_mod1_r <- -2*logLik(mod1_tmb_restricted) # deviance
+LL_mod1 <-  -2*logLik(mod1_tmb)  # deviance
+
+LR_mod1 <- as.numeric(LL_mod1_r - LL_mod1) # likelihood ratio
+
+pchisq(LR_mod1, df = 1, lower.tail = F) # only the single covariance term differs between models, thus df = 1 
+
+AIC(mod1_tmb_restricted)  #3124 
+AIC(mod1_tmb)             #3111
+```
+
+
+Examine full model fit relative to one where there is genetic variation for aggression generally, but not specifically for the two categories (threat and contact).
+
+The number of random effect parameters that differ is 2 (2 for DRGP). I have allowed the residual (trial) level variance effects to stay as they are for the full model. It does not make much biological sense as a model, but statistically allows us to focus on whether there is differences in the amount of genetic variance among the two categories of aggressive behaviours.
+
+```{r}
+mod1_tmb_restricted2 <- glmmTMB(duration ~ 1 + category + (1|DGRP) + (1|day) + (1|Observer) + (0 + category | Obs_code), 
+                    data = aggression_male_only, 
+                    REML = T,
+                    family = tweedie(link = "log"))
+
+            
+LL_mod1_r2 <- -2*logLik(mod1_tmb_restricted2) # deviance
+LL_mod1 <-  -2*logLik(mod1_tmb)  # deviance
+LR_mod1_r2 <- as.numeric(LL_mod1_r2 - LL_mod1)
+pchisq(LR_mod1, df = 2, lower.tail = F) 
+
+AIC(mod1_tmb_restricted2)  #3133 
+AIC(mod1_tmb)             #3111
+```
+
+
+
+parametric bootstrap. This can take a long time. Test first with a small nsim.
+
+Currently it is set up just for the genetic correlation.
+
+```{r}
+cov2cor(summary(mod1_tmb)$varcor$cond$DGRP[1:2, 1:2])[1,2] # genetic correlation
+
+b1 <- bootMer(mod1_tmb, 
+                    FUN = function(x) cov2cor(summary(x)$varcor$cond$DGRP[1:2, 1:2])[1,2], 
+                    nsim = 10, .progress = "txt")
+
+#From Ben B. VarCorr extractor instead of my code would be cleaner for folks to read.
+
+#broom.mixed, can get it easily enough.
+
+boot::boot.ci(b1, type = "perc")
+```
+
+Extract random effects:
+
+Conditional means are called blups (I am old school)
+
+```{r}
+blups <- as.data.frame(ranef(mod1_tmb, 
+                             condVar = T))
+```
+
+
+### quick scatter plot of random effects - male only
+
+```{r}
+blups <- blups[blups$grpvar == "DGRP",]
+
+dim(blups)
+head(blups)
+
+plot(x = blups[1:24, 5], y =  blups[25:48, 5],
+     pch = 20, col = "blue",
+     xlab = "threat duration", ylab = "contact duration",
+     main = "Genetic effects (conditional means)")
+```
+
+
+### Setting up to make the nice looking plots. Random effects (male only)
+
+```{r}
+estimates_mod1 <- coef(mod1_tmb)$cond$DGRP
+threat_mod1 <- exp(rowSums(estimates_mod1[,1:2]))
+contact_mod1 <- exp(rowSums(estimates_mod1[,2:3]))
+
+threat_mod1_Cond_sd <- blups[1:24, 6] # standard errors for RE
+contact_mod1_Cond_sd <- blups[25:48, 6]
+
+dat1_mod1 <- data.frame(threat = threat_mod1, contact = contact_mod1, 
+                        threat_sd =  threat_mod1_Cond_sd,
+                        contact_sd = contact_mod1_Cond_sd)
+```
+
+
+### scatterplot - male only
+
+```{r}
+ggplot(dat1_mod1, aes(y = contact, x = threat)) + 
+  geom_point(size = 2, alpha = 0.5) +
+  geom_errorbar(aes(ymin = contact - contact_sd, ymax = contact + contact_sd), 
+                 alpha = 0.25) +
+  geom_errorbarh(aes(xmin = threat - threat_sd, xmax = threat + threat_sd),
+                 alpha = 0.25) +
+  xlab("Wing threat, s/min") +
+  ylab("Fighting, s/min") +
+  theme_classic()
+```
+
+### reaction norm - male only
+
+```{r}
+dat2_mod1 <- data.frame(duration = c(threat_mod1,  contact_mod1), 
+                        DGRP = as.factor(c(names(threat_mod1), names(contact_mod1))),
+                        aggression_type = gl(2, 24, labels = c("Threat", "Fighting")))
+
+ggplot(dat2_mod1, aes(y = duration, x = aggression_type, 
+                              group = DGRP)) +
+    geom_point(size = 2, alpha = 0.5) +
+    geom_line(alpha = 0.3, lwd = 1.25, linejoin = "bevel") +
+    theme_classic() +
+  scale_x_discrete(labels = c("Wing Threat", "Fighting")) +
+  labs(x = "", y = "duration, s/min") +
+  theme(axis.text.x = element_text(size = 12)) +
+  theme(axis.text.y = element_text(size = 12)) +
+  theme(axis.title.y = element_text(size = 12)) +
+  theme(legend.position = "none")
+```
+
+## Male aggression with females present
+
+```{r}
+aggression_w_female_only <- read.csv("../data/CB_RD_MF.csv", 
+                                 stringsAsFactors = F)
+
+str(aggression_w_female_only) #observation title is the experimental id
+```
+
+
+### Data munging etc.
+
+```{r}
+
+aggression_w_female_only[,c(1:6, 8)] <- lapply(aggression_w_female_only[,c(1:6, 8)], FUN = as.factor)
+```
+
+```{r}
+names(aggression_w_female_only)
+
+names(aggression_w_female_only)[18:19] <- c("threat", "contact")
+```
+
+```{r}
+aggression_w_female_only <- select(aggression_w_female_only, Rep, Day, Observation_title,
+                              DGRP, threat, contact)
+
+aggression_w_female_only <- gather(aggression_w_female_only, category, duration, threat:contact, 
+                               factor_key = TRUE)
+
+str(aggression_w_female_only)
+```
+
+### raw data plots - females present
+
+**lots of zeroes.** In other words, many trials had no aggression.
+
+```{r}
+ggplot(aggression_w_female_only, aes(duration, fill = category)) +
+  geom_histogram(alpha = 0.5, binwidth = 1)
+
+ggplot(aggression_w_female_only, aes(y = duration, x = category, col = Day)) + 
+  geom_quasirandom(alpha = 0.25)
+
+ggplot(aggression_w_female_only, aes(y = duration, x = Day)) + 
+  geom_quasirandom(alpha = 0.25) + 
+  facet_wrap(vars(category, Rep))
+
+ggplot(aggression_w_female_only, aes(y = duration, x = DGRP)) + 
+  geom_quasirandom(alpha = 0.25) + 
+  facet_wrap(vars(category))
+
+length(aggression_w_female_only$duration[aggression_w_female_only$duration == 0])
+
+length(aggression_w_female_only$duration[aggression_w_female_only$duration == 0])/length(aggression_w_female_only$duration) # 37% of trials had 0 aggression
+```
+
+### Full model - females present
+
+```{r}
+mod2_tmb <- glmmTMB(duration ~ 1 + category + (0 + category|DGRP) 
+                    + (1|Rep) + (1|Day:Rep) + (0 + category | Observation_title), 
+                    data = aggression_w_female_only,
+                    REML = T,
+                    family = tweedie(link = "log"))
+
+
+summary(mod2_tmb)
+
+plot(simulateResiduals(mod2_tmb))
+plotQQunif(simulateResiduals(mod2_tmb))
+testZeroInflation(simulateResiduals(mod2_tmb))
+
+confint(mod2_tmb) # also check profile in addition to wald approx
+  # 95% CIs for rG from 0.15 to 0.93, with the point estimate at 0.80
+
+mod2_fixef <-  summary(emmeans(mod2_tmb, ~ category), type = "response")
+mod2_fixef_link <-  summary(emmeans(mod2_tmb, ~ category), type = "link")
+
+
+pairs(emmeans(mod2_tmb, ~ category), type = "response")
+pairs(emmeans(mod2_tmb, ~ category))
+```
+
+
+### Restricted model and comparison
+
+Constrained for $r_G = 0$ compared with unrestricted model. 
+
+```{r}
+mod2_tmb_restricted <- glmmTMB(duration ~ 1 + category 
+                               + diag(0 + category|DGRP) 
+                    + (1|Rep) + (1|Day:Rep) 
+                    + (0 + category | Observation_title), 
+                    data = aggression_w_female_only, 
+                    REML = T,
+                    family = tweedie(link = "log"))
+
+summary(mod2_tmb_restricted)
+
+LL_mod2_r <- -2*logLik(mod2_tmb_restricted) # deviance
+LL_mod2 <-  -2*logLik(mod2_tmb)  # deviance
+LR_mod2 <- as.numeric(LL_mod2_r - LL_mod2)
+pchisq(LR_mod2, df = 1, lower.tail = F) # only the single covariance term differs
+
+AIC(mod2_tmb_restricted)  #2193
+AIC(mod2_tmb)             #2185
+```
+
+
+To examine full model fit relative to one where there is genetic variation for aggression generally, but not specifically for the two categories (threat and contact). See notes above.
+
+```{r}
+mod2_tmb_restricted2 <- glmmTMB(duration ~ 1 + category 
+                               + (1|DGRP) + (1|Rep) + (1|Day:Rep) 
+                    + (0 + category | Observation_title), 
+                    data = aggression_w_female_only, 
+                    REML = T,
+                    family = tweedie(link = "log"))
+
+LL_mod2_r2 <- -2*logLik(mod2_tmb_restricted2) # deviance
+LL_mod2 <-  -2*logLik(mod2_tmb)  # deviance
+LR_mod2_r2 <- as.numeric(LL_mod2_r2 - LL_mod2)
+
+pchisq(LR_mod2_r2, df = 2, lower.tail = F) 
+
+AIC(mod2_tmb_restricted2)  #2194
+AIC(mod2_tmb)             #2186
+```
+
+
+### Extract random effects
+
+```{r}
+blups_F <- as.data.frame(ranef(mod2_tmb, 
+                             condVar = T))
+
+blups_F <- blups_F[blups_F$grpvar == "DGRP",]
+```
+
+
+### scatter plot of random effects - females present
+
+Setting up to make the nice looking plots. Random effects (with female)
+```{r}
+estimates_mod2 <- coef(mod2_tmb)$cond$DGRP
+threat_mod2 <- exp(rowSums(estimates_mod2[,1:2]))
+contact_mod2 <- exp(rowSums(estimates_mod2[,2:3]))
+
+threat_mod2_Cond_sd <- blups_F[1:16, 6] # standard errors for RE
+contact_mod2_Cond_sd <- blups_F[17:32, 6]
+
+dat1_mod2 <- data.frame(threat = threat_mod2, contact = contact_mod2, 
+                        threat_sd =  threat_mod2_Cond_sd,
+                        contact_sd = contact_mod2_Cond_sd)
+```
+
+
+### scatterplot - females present
+
+**Please note:** We have purposefully plotted this so that the limits at 0 are clear. The high uncertainty in the conditional means (BLUPs) of the DGRP effects is a combination of the small means (near zero on response scale) and the large number of trials where no aggression was observed. To see the full extent of the SD on the conditional means (i.e. their standard error) just use
+contact - contact_sd etc..
+
+Alternatively (but less biologically interpretable, but more easy to understand otherwise) just plot everything on the log link scale!
+
+```{r}
+ggplot(dat1_mod2, aes(y = contact, x = threat)) + 
+  geom_point(size = 2, alpha = 0.5) +
+   geom_errorbar(aes(ymin = ifelse(contact - contact_sd  < 0, 0, contact - contact_sd), 
+                     ymax = ifelse(contact + contact_sd  > 1.2, 1.2, contact + contact_sd)),
+                 alpha = 0.25) +
+   geom_errorbarh(aes(xmin = ifelse(threat - threat_sd  < 0, 0, threat - threat_sd),
+                      xmax = ifelse(threat + threat_sd  > 0.5, 0.5, threat + threat_sd)),
+                 alpha = 0.25) +
+  xlab("Wing threat, s/min") +
+  ylab("Fighting, s/min") +
+  theme_classic()
+
+# no error bars
+ggplot(dat1_mod2, aes(y = contact, x = threat)) + 
+  geom_point(size = 2, alpha = 0.5) +
+  xlab("Wing threat, s/min") +
+  ylab("Fighting, s/min") +
+  theme_classic()
+```
+
+
+### reaction norm
+
+```{r}
+dat2_mod2 <- data.frame(duration = c(threat_mod2,  contact_mod2), 
+                        DGRP = as.factor(c(names(threat_mod2), names(contact_mod2))),
+                        aggression_type = gl(2, 16, labels = c("Threat", "Fighting")))
+
+ggplot(dat2_mod2, aes(y = duration, x = aggression_type, 
+                              group = DGRP)) +
+    geom_point(size = 2, alpha = 0.5) +
+    geom_line(alpha = 0.3, lwd = 1.25, linejoin = "bevel") +
+    theme_classic() +
+  scale_x_discrete(labels = c("Wing Threat", "Fighting")) +
+  labs(x = "", y = "duration, s/min") +
+  theme(axis.text.x = element_text(size = 12))+
+  theme(axis.text.y = element_text(size = 12))+
+  theme(axis.title.y = element_text(size = 12))+
+  theme(legend.position = "none")
+```
+
+## Some checks with different distributions and link functions.
+
+
+$ZI \Gamma$. Essentially a Gamma Hurdle approach.
+
+I actually don't advocate this approach for this as it interprets zeroes as all structural 0s. One interpretation for this approach is potentially because experiments were only recorded in 10 minute units. This might imply that if we observed the experiments longer we would have many fewer zeroes. I asked RD about this. According to RD, there are just many individuals who don't show aggression, and it is unlikely to be a function of the length of trials, but biology. So, this is more representative of a check for some systematic issues with using a Tweedie as above, but the Tweedie probably makes more sense. Anyways, left in for completeness.
+
+```{r}
+mod1_tmb_ziGamma <- glmmTMB(duration ~ 1 + category + (0 + category|DGRP) 
+                            + (1|day) + (1|Observer) + (0 + category | Obs_code), 
+                    ziformula = ~ 1 + category,
+                    data = aggression_male_only,
+                    REML = T,
+                    family = ziGamma(link = "log"))
+
+summary(mod1_tmb_ziGamma)
+confint(mod1_tmb_ziGamma)
+summary(mod1_tmb)
+confint(mod1_tmb)
+
+mod2_tmb_ziGamma <- glmmTMB(duration ~ 1 + category + (0 + category|DGRP) 
+                    + (1|Rep) + (1|Day:Rep) + (0 + category | Observation_title),
+                    ziformula = ~ 1 + category,
+                    data = aggression_w_female_only,
+                    REML = T,
+                    family = ziGamma(link = "log"))
+
+summary(mod2_tmb_ziGamma)
+confint(mod2_tmb_ziGamma)
+```
+
+
+
+## random stuff
+
+How I calculated broad sense heritability $H^2$ on the latent variable scale.
+
+```{r}
+quick_H2 <- function(sd_dgrp, sd_trial ) 
+  {(2*sd_dgrp^2)/ (2*sd_dgrp^2 + sd_trial^2)}
+```
+
+
+```{r}
+sessionInfo()
+```
+
+
+FYI, core information on what I used for the paper (just in case I rerun this) 
+
+R version 4.1.2 (2021-11-01)
+Platform: x86_64-apple-darwin17.0 (64-bit)
+Running under: macOS Big Sur 11.6.8
+glmmTMB_1.1.4
+TMB_1.9.0
+emmeans_1.7.3
+DHARMa_0.4.4  
+lme4_1.1-28
+boot_1.3-28 
