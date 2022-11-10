@@ -130,8 +130,10 @@ mod1_tmb <- glmmTMB(duration ~ 1 + category + (0 + category|DGRP) + (1|day) + (1
 #                     family = tweedie(link = "log"))
 summary(mod1_tmb)
 
-# Q for BB, how to extract power used for tweedie dist?
-# answer from BB... not currently available in a sensible way.
+# Oct 31st, 2022. 
+# power of tweedie distrubution can now be extracted via
+glmmTMB:::.tweedie_power(mod1_tmb)
+sigma(mod1_tmb) # returns than value of phi, where variance is phi*mu*p. p is power above
 
 plot(simulateResiduals(mod1_tmb))
 plotQQunif(simulateResiduals(mod1_tmb))
@@ -189,13 +191,13 @@ ggplot(tidy_mod1_emm, aes(y = category)) +
                                sigma = std.error))) +
   ylab("aggression category") + xlab("duration (s/m)")
 
-mod1_contastRatio <- tidy(pairs(emmeans(mod1_tmb, ~ category),
+mod1_contrastRatio <- tidy(pairs(emmeans(mod1_tmb, ~ category),
                                 type = "response",
                                 conf.int = TRUE, 
                                 conf.level = 0.95))
 
 
-ggplot(mod1_contastRatio, aes(y = contrast)) +
+ggplot(mod1_contrastRatio, aes(y = contrast)) +
   stat_halfeye(
     aes(xdist = dist_student_t(df = df, 
                                mu = ratio, 
@@ -415,6 +417,8 @@ mod2_tmb <- glmmTMB(duration ~ 1 + category + (0 + category|DGRP)
                     REML = T,
                     family = tweedie(link = "log"))
 
+glmmTMB:::.tweedie_power(mod2_tmb)
+sigma(mod2_tmb) # returns than value of phi, where variance is phi*mu*p. p is power above
 
 summary(mod2_tmb)
 
@@ -561,7 +565,7 @@ ggplot(dat2_mod2, aes(y = duration, x = aggression_type,
 
 $ZI \Gamma$. Essentially a Gamma Hurdle approach.
 
-I actually don't advocate this approach for this as it interprets zeroes as all structural 0s. One interpretation for this approach is potentially because experiments were only recorded in 10 minute units. This might imply that if we observed the experiments longer we would have many fewer zeroes. I asked RD about this. According to RD, there are just many individuals who don't show aggression, and it is unlikely to be a function of the length of trials, but biology. So, this is more representative of a check for some systematic issues with using a Tweedie as above, but the Tweedie probably makes more sense. Anyways, left in for completeness.
+I actually don't advocate this approach for this as it interprets zeroes as all structural 0s. One interpretation for this approach is potentially because experiments were only recorded in 10 minute units. This might imply that if we observed the experiments longer we would have many fewer zeroes. I asked RD about this. According to RD, there are just many individuals who don't show aggression, and it is unlikely to be a function of the length of trials, but biology. So, this is more representative of a check for some systematic issues with using a Tweedie as above, but the Tweedie probably makes more sense. Anyways, left in for completeness, but not used in the paper.
 
 ```{r, eval = FALSE}
 mod1_tmb_ziGamma <- glmmTMB(duration ~ 1 + category + (0 + category|DGRP) 
