@@ -2,7 +2,7 @@
 
 This is the data and scripts repository associated with the manuscript:
 
-Baxter,CM., Shams, I., Dworkin, I. and Dukas, R. 2022 Genetic correlation between aggressive signals and fighting. Biology Letters. In Revision.
+Baxter, C.M., Shams, I., Dworkin, I. and Dukas, R. 2022 Genetic correlation between aggressive signals and fighting. Biology Letters. In Revision.
 
 
 ## General notes
