@@ -565,7 +565,7 @@ ggplot(dat2_mod2, aes(y = duration, x = aggression_type,
 
 $ZI \Gamma$. Essentially a Gamma Hurdle approach.
 
-I actually don't advocate this approach for this as it interprets zeroes as all structural 0s. One interpretation for this approach is potentially because experiments were only recorded in 10 minute units. This might imply that if we observed the experiments longer we would have many fewer zeroes. I asked RD about this. According to RD, there are just many individuals who don't show aggression, and it is unlikely to be a function of the length of trials, but biology. So, this is more representative of a check for some systematic issues with using a Tweedie as above, but the Tweedie probably makes more sense. Anyways, left in for completeness, but not used in the paper.
+I actually don't advocate this approach for this as it interprets zeroes as all structural 0s. One interpretation for this approach is potentially because experiments were only recorded in 10 minute units. This might imply that if we observed the experiments longer we would have many fewer zeroes. I asked RD about this. According to RD, there are just many individuals who don't show aggression, and it is unlikely to be a function of the length of trials, but biology. So, this is more representative of a check for some systematic issues with using a Tweedie as above, but the Tweedie probably makes more sense. Anyways, left in for completeness, but not used in the paper. Importantly the genetic correlation is pretty similar with both models for the male only data set. For the female with male it is having some issues fitting below. Not sure why.
 
 ```{r, eval = FALSE}
 mod1_tmb_ziGamma <- glmmTMB(duration ~ 1 + category + (0 + category|DGRP) 
@@ -573,6 +573,8 @@ mod1_tmb_ziGamma <- glmmTMB(duration ~ 1 + category + (0 + category|DGRP)
                     ziformula = ~ 1 + category,
                     data = aggression_male_only,
                     REML = T,
+                    control = glmmTMBControl(optimizer = optim,
+                                    optArgs = list(method="BFGS")),
                     family = ziGamma(link = "log"))
 
 summary(mod1_tmb_ziGamma)
@@ -580,14 +582,18 @@ confint(mod1_tmb_ziGamma)
 summary(mod1_tmb)
 confint(mod1_tmb)
 
+
 mod2_tmb_ziGamma <- glmmTMB(duration ~ 1 + category + (0 + category|DGRP) 
                     + (1|Rep) + (1|Day:Rep) + (0 + category | Observation_title),
                     ziformula = ~ 1 + category,
                     data = aggression_w_female_only,
                     REML = T,
+                    control=glmmTMBControl(optimizer = optim, #nlminb #optim
+                                       optArgs = list(method="BFGS")),
                     family = ziGamma(link = "log"))
 
 summary(mod2_tmb_ziGamma)
+summary(mod2_tmb)
 confint(mod2_tmb_ziGamma)
 ```
 
