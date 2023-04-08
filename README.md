@@ -1,4 +1,4 @@
-# Data and scripts for Baxter et al. 2022
+# Data and scripts for Baxter et al. 2023
 
 This is the data and scripts repository associated with the manuscript:
 
